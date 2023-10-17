@@ -2,3 +2,10 @@
 /.idea
 gmon.out
 /test_prof
+
+dense_keys/**
+dense_keys_int/**
+sparse_keys/**
+sparse_keys_int/**
+data/**
+hardness_output/*/*

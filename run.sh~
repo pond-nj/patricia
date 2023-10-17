@@ -1,0 +1,5 @@
+rm ./out_data/git_repo_name_clean
+g++-10 main_test.cpp -std=c++20
+./a.out ./data/git_repo_name_clean ./out_data/git_repo_name_clean
+g++-10 hardness.cpp -std=c++20
+./a.out ./out_data/git_repo_name_clean hardness_output
