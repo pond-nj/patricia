@@ -106,9 +106,11 @@ void remove_dup(std::vector<size_t>& vec){
 }
 
 // returned keys size should be indicated by write_func
-void get_keys_and_write_to_file(sk::patricia_trie<int>& trie, std::vector<size_t>& bit_list, std::function<void(std::vector<uint64_t>& bit_set, int count_bit)> write_func){
+void get_keys_and_write_to_file(sk::patricia_trie<int>& trie, std::vector<size_t>& bit_list, std::function<void(const std::vector<uint64_t>& bit_set, int count_bit)> write_func){
     // get bits from the position we want
     std::vector<uint64_t> bit_pos;
+
+    // count_bit means "bit % 64" in the last element of std::vector<uint64_t>
     int count_bit = 0;
     auto insert_bit_pos = [&](bool bit){
         if (count_bit == 0)
@@ -122,26 +124,26 @@ void get_keys_and_write_to_file(sk::patricia_trie<int>& trie, std::vector<size_t
         count_bit = count_bit % 64;
     };
 
-    // encode key
-    int return_size;
-    if (bit_list.size() < 64)
-        return_size = bit_list.size();
-    else
-        return_size = 64;
-
     for(auto it = trie.begin() ; it != trie.end(); it ++){
         bit_pos.clear() ;
         count_bit = 0 ;
 
         // if( it == trie.begin() )
         //     printf("bit: ");
-        for(int i = 0 ; i < return_size ; i+= 1 ){
+        
+        int i = 0;
+        while(i < bit_list.size() && bit_list[i] < ((it.get_node())->key).size_bits()){
+        // while(i < bit_list.size()){
             int pos = bit_list[i];
             bool bit = ((it.get_node())->key).test_bit(pos) ;
+
             // if( it == trie.begin() )
             //     printf("%d ", bit );
+
             insert_bit_pos(bit);
+            i++;
         }
+
         // if( it == trie.begin() )
         //     printf("\n");
 
@@ -152,6 +154,7 @@ void get_keys_and_write_to_file(sk::patricia_trie<int>& trie, std::vector<size_t
     }
 }
 
+// TODO(Pond): fix test
 void test(){
     sk::patricia_trie<int> trie;
 
@@ -217,7 +220,7 @@ void test(){
         std::byte{0b11101},
         std::byte{0b11111},
     };
-    auto test_write_func = [&](std::vector<uint64_t>& bit_set, int count_bit ){
+    auto test_write_func = [&](const std::vector<uint64_t>& bit_set, int count_bit ){
         // fprintf(stderr, "called\n");
         assert(bit_set.size() == 1);
 
@@ -263,34 +266,66 @@ void do_dense(int argc, char** argv){
     // sort and delete duplicated bit position
     remove_dup(bit_list);
 
-    std::ofstream out_file(  output_dir + "/" + filename, std::ios::out | std::ios::binary );
-    std::ofstream int_file( int_output_dir + "/" + filename, std::ios::out | std::ios::binary );
+    // std::ofstream out_file( output_dir + "/" + filename + "_first64", std::ios::out | std::ios::binary );
+    std::ofstream all_bits_file( output_dir + "/" + filename + "_all", std::ios::out | std::ios::binary );
+    // std::ofstream int_file( int_output_dir + "/" + filename + "_test", std::ios::out | std::ios::binary );
 
-    int count_write = 0;
-    auto writeToFile = [&](std::vector<uint64_t>& bit_set, int count_bit ){
-        // write keysize
-        if(count_bit == 0) count_bit = 64 ;
-        int sixty_four = 64;
-        out_file.write( static_cast<const char *>( static_cast<const void*> (&sixty_four)), sizeof(int) );
+    
+    // write arbitrary key size to file
+    // format: key_size followed by key_val
+    auto writeAtMostNBitsToFile = [&](const std::vector<uint64_t>& bit_set, int count_bit, int N, std::ofstream& file){
+        // write key size (in bits)
+        int key_size = bit_set.size() * 64 + count_bit;
+        // assert(key_size > 64);
+        int num_bits_to_write = std::min(key_size, N);
+        file.write( static_cast<const char *>( static_cast<const void*> (&num_bits_to_write)), sizeof(int) );
 
         // write key val
-        uint64_t first = bit_set.size() == 1 ? bit_set[0] << (64 - count_bit) : bit_set[0] ;
-        out_file.write( static_cast<const char *>( static_cast<const void*> (&first) ), sizeof(uint64_t) );
+        // assert( num_bits_to_write == 64 );
+        int num_el = (num_bits_to_write + 63) / 64;
+        int offset = num_bits_to_write % 64;
+        if(offset == 0)
+            offset = 64;
 
-        // write to int format
-        int_file << first << std::endl;
+        int last_byte_len;
+        if(num_el == bit_set.size())
+            last_byte_len = count_bit;
+        else
+            last_byte_len = offset;
+        
+        // get val of last element from back
+        for(int i = 0 ; i < num_el - 1; i++ ){
+            uint64_t byte_val = bit_set[i];
+            file.write( static_cast<const char *>( static_cast<const void*> (&byte_val) ), sizeof(uint64_t) );
+        }
 
+        uint64_t last_byte = (bit_set[num_el - 1] >> (last_byte_len - offset)) << (64 - offset);
+        file.write( static_cast<const char *>( static_cast<const void*> (&last_byte) ), sizeof(uint64_t) );
+    };
+
+    // write first 64 bits to File
+    // auto writeToIntFile = [&](const std::vector<uint64_t>& bit_set, int count_bit){
+    //     uint64_t first = bit_set.size() == 1 ? bit_set[0] << (64 - count_bit) : bit_set[0] ;
+    //     int_file << first << std::endl;
+    // };
+
+    int count_write = 0;
+    auto write_func = [&](const std::vector<uint64_t> bit_set, int count_bit){
+        // writeAtMostNBitsToFile(bit_set, count_bit, 64, out_file);
+        writeAtMostNBitsToFile(bit_set, count_bit, INT_MAX, all_bits_file);
+        // writeToIntFile(bit_set, count_bit);
         count_write++;
     };
-    get_keys_and_write_to_file(trie, bit_list, writeToFile);
+
+    get_keys_and_write_to_file(trie, bit_list, write_func);
     printf("count_write: %d\n", count_write);
 
-
     int zero = 0;
-    out_file.write(static_cast<const char *>(static_cast<const void*> (&zero)), 4);
+    // out_file.write(static_cast<const char *>(static_cast<const void*> (&zero)), 4);
+    all_bits_file.write(static_cast<const char *>(static_cast<const void*> (&zero)), 4);
 }
 
 int main(int argc, char** argv){
-    test();
+    // test();
     do_dense(argc, argv);
 }

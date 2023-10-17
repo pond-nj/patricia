@@ -3,51 +3,50 @@
 #include <string>
 #include <set>
 #include <fstream>
+#include <iomanip>
 
-void readByteFormat(std::string input, std::function<void(std::string)> insert){
+// File is written by key size followed by key values (written in uint64_t at one time)
+void readBitsFormat(std::string input){
     std::cout << "reading data from: " << input << std::endl;
     std::ifstream infile(input, std::ios::in | std::ios::out | std::ios::binary);
 
-    std::set<std::string> tmp_keys;
+    int count_read = 0;
+
     while (1) {
-        // get number of bytes for this string
-        uint32_t numChar = 0;
+        // read number of bits for this key
+        int numBit = 0;
         for(int j=0; j< 4 ; j+=1){
-            uint32_t value = (uint32_t)(infile.get());
-            numChar = numChar | value << (j*8);
+            int value = (int)(infile.get());
+            numBit = numBit | value << (j*8);
         }
 
-        if(numChar == 0) break;
+        if(numBit == 0) break;
+        // because the file is written by uint64_t at once
+        int numUint64ToRead = (numBit + 63) / 64;
+        int numBytes = numUint64ToRead * 8;
 
-        char * buffer = (char *) malloc(sizeof(char) * numChar) ;
-        for( int j=0; j<numChar; j+=1){
-            buffer[j] = static_cast<char>(infile.get());
+        uint64_t* read = new uint64_t[numUint64ToRead];
+        for( int j=0; j<numBytes; j+=1){
+            uint8_t c = infile.get();
+            // std::cout << std::hex << (uint64_t)read[0] << std::endl;
+            read[ j/8 ] |= ((uint64_t)c) << (j*8);
         }
 
-        std::string str(buffer, numChar);
+        int offset = numBit % 64;
+        if( offset != 0 )
+            read[numUint64ToRead - 1] = numUint64ToRead >> (64 - offset);
 
-        insert(str);
+        std::string s((char *) read, numBytes);
+
+        count_read++;
     }
+
+    printf("count read: %d\n", count_read);
     
     infile.close();
-    std::cout << "done reading data from byte file" << std::endl;
     return ;
 }
 
 int main(){
-    sk::patricia_trie<int> trie;
-
-    int count = 0;
-
-    auto insert_key = [&](std::string str){
-        char const *c = str.c_str();
-        sk::patricia_key pk(c);
-        trie.insert(pk, count);
-        count += 1;
-    };
-
-    readByteFormat( "data/git_repo_name_clean" , insert_key);
-
-        
-
+    readBitsFormat( "dense_keys/git_repo_name_clean.txt_all" );
 }
