@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-g++-10 dense.cpp -o dense -std=c++20
-g++-10 hardness.cpp -o hardness -std=c++20
+g++-10 dense.cpp -o dense -std=c++20 -O3
+g++-10 hardness.cpp -o hardness -std=c++20 -O3
 
 data_dir="data"
 for path in "$data_dir"/*
